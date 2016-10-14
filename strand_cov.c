@@ -61,9 +61,10 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 	mplp = bam_mplp_init(n_files, filter_func, (void **)data);
 	if(smart_overlap) {
 		// avoid duplicate counts of overlapping bases by finding overlap region and
-		// set the quality scores of overlapping bases to 0 for the read that maps to the forward strand
+		// settting the quality score to 0 for the lower-quality base at each overlapping position
 		bam_mplp_init_overlaps(mplp);
 	}
+	fprintf(stderr,"%i\n",max_peak);
 	bam_mplp_set_maxcnt(mplp, max_peak);
 
 	n_plp = calloc((size_t)n_files, sizeof(int)); // n_plp[i] is the number of covering reads from the i-th BAM
@@ -149,7 +150,7 @@ int main(int argc, char *argv[]) {
 	uint64_t mapped_reads = 0;
 
 	int c;
-	while((c = getopt(argc, argv, "s:m:p:r:o:hdvnx")) >= 0) {
+	while((c = getopt(argc, argv, "s:m:p:r:o:hdvnxy:")) >= 0) {
 		switch(c) {
 			case 'o' :
 				prefix = malloc(strlen(optarg)+1);
