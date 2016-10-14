@@ -1,4 +1,5 @@
 /* strand_cov.c - Peter Menzel, 2016 */
+// test -n between old and new
 #include "htslib/hfile.h"
 #include "htslib/sam.h"
 #include "htslib/bgzf.h"
@@ -16,7 +17,6 @@ typedef struct { // helper data structure
 	bam_hdr_t * hdr; // BAM header
 	hts_itr_t * iter; // NULL if a region not specified
 	int min_mapq;
-	double norm_factor;
 } mplp_data;
 
 int filter_func(void *data, bam1_t *b) {
@@ -42,7 +42,8 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 	int f,i;
 	int * n_plp; // number of covering reads per position
 	const bam_pileup1_t **plp = NULL;
-	uint32_t plus_depth, minus_depth;
+	unsigned int plus_depth;
+	unsigned int minus_depth;
 	int32_t ctid = -1;
 	int status = 0;
 	bam_hdr_t * h = NULL; // BAM header of the 1st input
@@ -64,7 +65,6 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 		// settting the quality score to 0 for the lower-quality base at each overlapping position
 		bam_mplp_init_overlaps(mplp);
 	}
-	fprintf(stderr,"%i\n",max_peak);
 	bam_mplp_set_maxcnt(mplp, max_peak);
 
 	n_plp = calloc((size_t)n_files, sizeof(int)); // n_plp[i] is the number of covering reads from the i-th BAM
@@ -105,18 +105,10 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 			}
 		}
 
-		if(norm_factor == 0.0 ) {
-			if(plus_depth>0)
-				fprintf(of1, "%"PRId32"\t%"PRIu32"\n", pos+1, plus_depth); //wig is 1-based whereas BAM is 0-based, thus add 1
-			if(minus_depth>0)
-				fprintf(of2, "%"PRId32"\t%"PRIu32"\n", pos+1, minus_depth);
-		}
-		else {
-			if(plus_depth>0)
-				fprintf(of1, "%"PRId32"\t%.6f\n", pos+1, plus_depth * norm_factor);
-			if(minus_depth>0)
-				fprintf(of2, "%"PRId32"\t%.6f\n", pos+1, minus_depth * norm_factor);
-		}
+		if(plus_depth>0)
+			fprintf(of1, "%u\t%.6f\n", pos+1, plus_depth * norm_factor);
+		if(minus_depth>0)
+			fprintf(of2, "%u\t%.6f\n", pos+1, minus_depth * norm_factor);
 
 	} // end while
 	if(ret < 0)
@@ -146,6 +138,7 @@ int main(int argc, char *argv[]) {
 	int verbose = 0;
 	int smart_overlap = 1;
 	int norm_rpm = 0;
+	double norm_factor = 1.0;
 	int max_peak = 1e6;
 	uint64_t mapped_reads = 0;
 
@@ -247,7 +240,6 @@ int main(int argc, char *argv[]) {
 		data[i] = calloc(1, sizeof(mplp_data));
 		data[i]->iter = NULL;
 		data[i]->min_mapq = min_mapq;  // set the mapQ filter
-		data[i]->norm_factor = 1.0;  // default is no normalisation
 
 		// when using RPM normalization, need to count the number of mapped reads in the BAM file first
 		if(norm_rpm) {
@@ -330,8 +322,12 @@ int main(int argc, char *argv[]) {
 		goto the_end;
 	}
 
-	if(verbose) fprintf(stderr,"Counted %lu mapped reads\n",mapped_reads);
-	double norm_factor = (norm_rpm) ? 1.0e6 / (double)mapped_reads : 0.0;  // reads per million mapped reads
+	if(verbose)
+		fprintf(stderr,"Counted %lu mapped reads\n",mapped_reads);
+
+	if(norm_rpm)
+		norm_factor = 1.0e6 / (double)mapped_reads;  // reads per million mapped reads
+
 	ret = processDepths(data, n_files, reg, min_phred, of1, of2, norm_factor, smart_overlap, max_peak);
 
 the_end:
