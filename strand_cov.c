@@ -1,3 +1,4 @@
+/* strand_cov.c - Peter Menzel, 2016 */
 #include "htslib/hfile.h"
 #include "htslib/sam.h"
 #include "htslib/bgzf.h"
@@ -29,14 +30,12 @@ int filter_func(void *data, bam1_t *b) {
 		if(b->core.flag & (BAM_FQCFAIL | BAM_FDUP) ) continue; // QCFAIL and DUPLICATE
 		if(b->core.flag & BAM_FSECONDARY) continue; // SECONDARY, that would skip alternative alignments for multi-mapping reads
 		if((int)b->core.qual < d->min_mapq) continue; // min mapping quality (option -m)
-		//TODO why set the 0x2 flag (==read mapped in proper pair) for discordant pairs here ?
-		if((b->core.flag & 0x9) == 0x1) b->core.flag |= 0x2; //Discordant pairs can cause double counts
 		break;
 	}
 	return ret;
 }
 
-int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FILE *of1, FILE *of2, double norm_factor) {
+int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FILE *of1, FILE *of2, double norm_factor, int smart_overlap, int max_peak) {
 	bam_mplp_t mplp;
 	int tid;
 	int pos;
@@ -55,13 +54,17 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 	if(reg) {
 		beg = data[0]->iter->beg; // and to the parsed region coordinates
 		end = data[0]->iter->end;
-		//reg_tid = data[0]->iter->tid;
+		//reg_tid = data[0]->iter->tid; // is not used in bam2depth.c in the pileup itself
 	}
 
 	// Initialize mplpator over positions
 	mplp = bam_mplp_init(n_files, filter_func, (void **)data);
-	bam_mplp_init_overlaps(mplp); // set the quality scores of overlapping bases to 0 in one of the reads
-	bam_mplp_set_maxcnt(mplp, 1e6); // TODO why 1e6 ?
+	if(smart_overlap) {
+		// avoid duplicate counts of overlapping bases by finding overlap region and
+		// set the quality scores of overlapping bases to 0 for the read that maps to the forward strand
+		bam_mplp_init_overlaps(mplp);
+	}
+	bam_mplp_set_maxcnt(mplp, max_peak);
 
 	n_plp = calloc((size_t)n_files, sizeof(int)); // n_plp[i] is the number of covering reads from the i-th BAM
 	plp = calloc((size_t)n_files, sizeof(bam_pileup1_t*)); // plp[i] points to the array of covering reads (internal in mplp)
@@ -82,9 +85,8 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 			for(i=0; i<n_plp[f]; i++) { // go through each read that covers position pos
 				// do not count read towards coverage if it has a deletion or skips the reference (split reads)
 				if(plp[f][i].is_del || plp[f][i].is_refskip) continue;
-				// do not count read if below minimum quality
+				// do not count base if below minimum quality (e.g. set to 0 by smart overlap)
 				if(bam_get_qual(plp[f][i].b)[plp[f][i].qpos] < min_phred) continue;
-
 				// determine strand of read
 				if(plp[f][i].b->core.flag & BAM_FREAD2) { //Read #2
 					if(plp[f][i].b->core.flag & BAM_FREVERSE) { //- strand
@@ -141,11 +143,13 @@ int main(int argc, char *argv[]) {
 	mplp_data ** data;
 	int debug = 0;
 	int verbose = 0;
+	int smart_overlap = 1;
 	int norm_rpm = 0;
+	int max_peak = 1e6;
 	uint64_t mapped_reads = 0;
 
 	int c;
-	while((c = getopt(argc, argv, "s:m:p:r:o:hdvn")) >= 0) {
+	while((c = getopt(argc, argv, "s:m:p:r:o:hdvnx")) >= 0) {
 		switch(c) {
 			case 'o' :
 				prefix = malloc(strlen(optarg)+1);
@@ -166,6 +170,9 @@ int main(int argc, char *argv[]) {
 			case 'v':
 				verbose = 1;
 				break;
+			case 'x':
+				smart_overlap = 0;
+				break;
 			case 'n':
 				norm_rpm = 1;
 				break;
@@ -182,6 +189,11 @@ int main(int argc, char *argv[]) {
 					fflush(stderr);
 					strand = 2;
 				}
+				break;
+			case 'y' :
+				max_peak = atoi(optarg);
+				if(max_peak < 1)
+					max_peak = 1;
 				break;
 			case 'm' :
 				min_mapq = atoi(optarg);
@@ -319,7 +331,7 @@ int main(int argc, char *argv[]) {
 
 	if(verbose) fprintf(stderr,"Counted %lu mapped reads\n",mapped_reads);
 	double norm_factor = (norm_rpm) ? 1.0e6 / (double)mapped_reads : 0.0;  // reads per million mapped reads
-	ret = processDepths(data, n_files, reg, min_phred, of1, of2, norm_factor);
+	ret = processDepths(data, n_files, reg, min_phred, of1, of2, norm_factor, smart_overlap, max_peak);
 
 the_end:
 
@@ -359,7 +371,9 @@ void usage(char *prog) {
 	fprintf(stderr,	"-m INT     Minimum required MAPQ value to count a read.\n");
 	fprintf(stderr, "           The default is 0, meaning that all aligned reads are counted.\n");
 	fprintf(stderr,	"\n");
-	fprintf(stderr,	"-p INT     Minimum Phred score to include a base in an alignment. The default is 1.\n");
+	fprintf(stderr,	"-p INT     Minimum Phred score to include a base in an alignment. Default: 1\n");
+	fprintf(stderr,	"\n");
+	fprintf(stderr,	"-y INT     Maximum counted depth per position. Default: 1000000\n");
 	fprintf(stderr,	"\n");
 	fprintf(stderr, "-r STRING  Allows to specify a target region, e.g. 'chr3L:1000-2500' or '2L:1,000,000-2,000,000'\n");
 	fprintf(stderr, "           This option requires a bam index file (.bai).\n");
@@ -367,7 +381,9 @@ void usage(char *prog) {
 	fprintf(stderr,	"\n");
 	fprintf(stderr, "-n         normalization by million mapped reads (RPM) \n");
 	fprintf(stderr,	"\n");
-	fprintf(stderr, "-v         verbose output: samtools index \n");
+	fprintf(stderr, "-x         disable smart-overlap of paired end reads\n");
+	fprintf(stderr,	"\n");
+	fprintf(stderr, "-v         verbose output\n");
 	fprintf(stderr,	"\n");
 	fprintf(stderr, "-d         debug output\n");
 }

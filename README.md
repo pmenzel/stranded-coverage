@@ -1,10 +1,10 @@
 stranded-coverage
 =================
 
-This program reads sorted and indexed BAM files with single-end or paired-end RNA-Seq reads that originate
-from a strand-specific library and calculates the coverage on each strand.
+This program reads sorted and indexed BAM files with single-end or paired-end RNA-Seq reads
+that originate from a strand-specific library and calculates the coverage on each strand.
 
-The output are two wig files, one for the plus strand and one for the minus strand.
+The output are two files in wiggle format (.wig): one for the plus strand coverage and one for the minus strand coverage.
 
 The implementation is based on the file `bam2depth.c` from
 the [samtools package](https://github.com/samtools/samtools)
@@ -25,7 +25,7 @@ make
 This will produce the executable file `strand_cov`.
 
 ### Usage
-Example using the file `Aligned.out.bam`, which needs to be sorted by coordinates:
+Example using the BAM file `Aligned.out.bam`, which needs to be sorted by coordinates:
 ```
 strand_cov -o coverage Aligned.out.bam
 ```
@@ -35,28 +35,39 @@ It is also possible to specify a region to be counted using the option `-r`:
 ```
 strand_cov -r '3L:100000-200000' -o coverage Aligned.out.bam
 ```
+This option requires the BAM file to be indexed via `samtools index` first.
+
+Reads can be filtered by their mapping quality (MAPQ) using option `-m`.
 
 ### Counting
-Example of the counts for one mapped read-pair (the first read is split on a splice junction):
+Example of the counts contained in the wig file for a mapped read-pair (the first read is split on a splice junction):
 ```
 Genome       GGCCGGCATCGCATCAGCACATGCACACTGACACACACTGACTGGCTGCTGACTGACTGACTGCTGCTGCGCTATGCATGCCTGCTGAC
 Read pair         GCATCGCA-----------ACACTGA>                  <ACTGACTGACTGCTGCTGCGCTATGCA
-wig file          1111111100000000000111111100000000000000000000111111111111111111111111111
+wig file          11111111000000000001111111                    111111111111111111111111111
 ```
 
-The program uses the smart overlapping code from `htslib` to only count coverage once for overlapping regions of paired-end mates.
+### Overlapping ends
+`strand_cov` uses the smart-overlap function from `htslib` to only count coverage once for overlapping ends of paired-end mates.
 ```
 Genome       GGCCGGCATCGCATCAGCACATGCACACTGACACACACTGACTGGCTGCTGACTGACTGACTGCTGCTGCGCTATGCATGCCTGCTGAC
-Read pair         GCATCGCATCAGCACATGCACACTGA>  
+Read pair         GCATCGCATCAGCACATGCACACTGA>
                                      <CACTGACACACACTGACTGGCTG
 wig file          1111111111111111111111111111111111111111111
+```
+The overlap detection can also be switched off using the option `-x`, resulting in these counts:
+```
+Genome       GGCCGGCATCGCATCAGCACATGCACACTGACACACACTGACTGGCTGCTGACTGACTGACTGCTGCTGCGCTATGCATGCCTGCTGAC
+Read pair         GCATCGCATCAGCACATGCACACTGA>
+                                     <CACTGACACACACTGACTGGCTG
+wig file          1111111111111111111122222211111111111111111
 ```
 
 ### RPM Normalization
 The option `-n` enables normalization of the coverage using the reads per million mapped reads (RPM).
 
 ### Conversion to bigWig format
-The ouput files in wiggle format can be converted to bigWig format using the [wigToBigWig](http://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/wigToBigWig) program from UCSC, which
+The output files in wiggle format can be converted to bigWig format using the [wigToBigWig](http://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/wigToBigWig) program from UCSC, which
 also requires the chromosome sizes in an extra file `chrom.sizes`.
 
 For example:
