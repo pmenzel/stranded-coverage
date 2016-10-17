@@ -44,7 +44,7 @@ Example of the counts contained in the wig file for a mapped read-pair (the firs
 ```
 Genome       GGCCGGCATCGCATCAGCACATGCACACTGACACACACTGACTGGCTGCTGACTGACTGACTGCTGCTGCGCTATGCATGCCTGCTGAC
 Read pair         GCATCGCA-----------ACACTGA>                  <ACTGACTGACTGCTGCTGCGCTATGCA
-wig file          11111111000000000001111111                    111111111111111111111111111
+wig file          11111111           1111111                    111111111111111111111111111
 ```
 
 ### Overlapping ends
