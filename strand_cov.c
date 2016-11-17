@@ -22,28 +22,27 @@ typedef struct { // helper data structure
 int filter_func(void *data, bam1_t *b) {
 	int ret;
 	mplp_data * d = (mplp_data *) data;
-	// get next useful read
+	// get next useful alignment
 	while(1) {
 		ret = d->iter ? sam_itr_next(d->fp, d->iter, b) : sam_read1(d->fp, d->hdr, b);
 		if(ret < 0) break;
 		if(b->core.tid < 0 || b->core.flag & BAM_FUNMAP) continue; // UNMAPPED
-		if(b->core.flag & (BAM_FQCFAIL | BAM_FDUP) ) continue; // QCFAIL and DUPLICATE
-		if(b->core.flag & BAM_FSECONDARY) continue; // SECONDARY, that would skip alternative alignments for multi-mapping reads
+		if(b->core.flag & (BAM_FQCFAIL | BAM_FDUP)) continue; // QCFAIL and DUPLICATE
 		if((int)b->core.qual < d->min_mapq) continue; // min mapping quality (option -m)
 		break;
 	}
 	return ret;
 }
 
-int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FILE *of1, FILE *of2, double norm_factor, int smart_overlap, int max_peak) {
+int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FILE *of1, FILE *of2, double norm_factor, int smart_overlap, int max_peak, int fraction_counts) {
 	bam_mplp_t mplp;
 	int tid;
 	int pos;
 	int f,i;
 	int * n_plp; // number of covering reads per position
 	const bam_pileup1_t **plp = NULL;
-	unsigned int plus_depth;
-	unsigned int minus_depth;
+	double plus_depth;
+	double minus_depth;
 	int32_t ctid = -1;
 	int status = 0;
 	bam_hdr_t * h = NULL; // BAM header of the 1st input
@@ -74,7 +73,8 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 	int ret;
 	while((ret = bam_mplp_auto(mplp, &tid, &pos, n_plp, plp)) > 0) {
 		if (pos < beg || pos >= end) continue; // out of range; skip
-		plus_depth = 0; minus_depth = 0;
+		plus_depth = 0.0;
+		minus_depth = 0.0;
 		// check if entering another reference sequence (e.g. chromosome)
 		// then output the new name
 		if(tid != ctid) {
@@ -88,18 +88,28 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 				if(plp[f][i].is_del || plp[f][i].is_refskip) continue;
 				// do not count base if below minimum quality (e.g. set to 0 by smart overlap)
 				if(bam_get_qual(plp[f][i].b)[plp[f][i].qpos] < min_phred) continue;
+
+				//when using fractional counting, then
+				//check if read is multimapped by using the NH:i:N tag
+				//and give it weight equal to 1 / N
+				double weight = 1.0;
+				if(fraction_counts && bam_aux_get(plp[f][i].b,"NH")) {
+					weight /= (double)bam_aux2i(bam_aux_get(plp[f][i].b,"NH"));
+					// Note that each alignment for a given read is counted as 1 / N, even if other alignments might not pass the mapq threshold
+				}
+
 				// determine strand of read
 				if(plp[f][i].b->core.flag & BAM_FREAD2) { //Read #2
 					if(plp[f][i].b->core.flag & BAM_FREVERSE) { //- strand
-						minus_depth++;
+						minus_depth += weight;
 					} else { //+ strand
-						plus_depth++;
+						plus_depth += weight;
 					}
 				} else {
 					if(plp[f][i].b->core.flag & BAM_FREVERSE) { //+ strand
-						plus_depth++;
+						plus_depth += weight;
 					} else { //- strand
-						minus_depth++;
+						minus_depth += weight;
 					}
 				}
 			}
@@ -124,7 +134,7 @@ int processDepths(mplp_data ** data, int n_files, char * reg, int min_phred, FIL
 // ========================= MAIN =====================================
 
 int main(int argc, char *argv[]) {
-	int strand = 2; // either 1 or 2, default is 2 (e.g. dUTP protocols), Ovattion protocol would be 1
+	int strand = 2; // either 1 or 2, default is 2 (e.g. dUTP protocols), Ovation protocol would be 1
 	int min_mapq = 0;
 	int min_phred = 1;
 	FILE * of1 = NULL;
@@ -136,14 +146,15 @@ int main(int argc, char *argv[]) {
 	mplp_data ** data;
 	int debug = 0;
 	int verbose = 0;
+	int fraction_counts = 0;
 	int smart_overlap = 1;
 	int norm_rpm = 0;
 	double norm_factor = 1.0;
 	int max_peak = 1e6;
-	uint64_t mapped_reads = 0;
+	double mapped_reads = 0.0;
 
 	int c;
-	while((c = getopt(argc, argv, "s:m:p:r:o:hdvnxy:")) >= 0) {
+	while((c = getopt(argc, argv, "s:m:p:r:o:hdvfnxy:")) >= 0) {
 		switch(c) {
 			case 'o' :
 				prefix = malloc(strlen(optarg)+1);
@@ -154,6 +165,10 @@ int main(int argc, char *argv[]) {
 				strcpy(prefix,optarg);
 				break;
 			case 'r' :
+				if(strlen(optarg)==0) {
+					fprintf(stderr,"Option -r requires a region as argument.\n");
+					return 1;
+				}
 				reg = malloc(strlen(optarg)+1);
 				if(reg==NULL) {
 					fprintf(stderr,"Error while copying region string :(\n");
@@ -172,6 +187,9 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'd':
 				debug = 1;
+				break;
+			case 'f':
+				fraction_counts = 1;
 				break;
 			case 'h' :
 				usage(argv[0]);
@@ -226,6 +244,10 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	if(fraction_counts && min_mapq > 0) {
+		fprintf(stderr,"Notice: When using fraction counts and a minimum MAPQ value, each valid alignment\nwill be counted as 1/N, irrespective of all N alignments being above MAPQ or not.\n");
+	}
+
 	// -------- open files and build data_mplp structures ----------------
 
 
@@ -246,6 +268,12 @@ int main(int argc, char *argv[]) {
 			bam1_t * aln;
 			aln = bam_init1();
 			samFile * in = sam_open(argv[optind+i], "r");
+			if(in==NULL) {    // read the BAM header
+				fprintf(stderr, "Failed to open BAM file %s.\n", argv[optind+i]);
+				ret = 1;
+				goto the_end;
+
+			}
 			bam_hdr_t *hdr = NULL;
 			if((hdr = sam_hdr_read(in))==NULL) {    // read the BAM header
 				fprintf(stderr, "Fail to read header from BAM file %s.\n", argv[optind+i]);
@@ -255,11 +283,16 @@ int main(int argc, char *argv[]) {
 			}
 			while(sam_read1(in, hdr, aln)>1) {
 					if(aln->core.flag & BAM_FUNMAP || aln->core.tid < 0) continue; // UNMAPPED
-					if(aln->core.flag & (BAM_FQCFAIL | BAM_FDUP) )continue; // QCFAIL and DUPLICATE
-					if(aln->core.flag & BAM_FSECONDARY) continue; // SECONDARY
+					if(aln->core.flag & (BAM_FQCFAIL | BAM_FDUP)) continue; // QCFAIL and DUPLICATE
 					if((int)aln->core.qual < min_mapq) continue;
 
-					mapped_reads++;
+					if(fraction_counts && bam_aux_get(aln,"NH")) {
+						mapped_reads += 1.0 / (double)bam_aux2i(bam_aux_get(aln,"NH"));
+						// This means that the counts of a multimapped read add up to 1 or < 1 if some alignments didn't pass the mapq filter
+					}
+					else {
+						mapped_reads++;
+					}
 			}
 			sam_close(in);
 		}
@@ -322,13 +355,13 @@ int main(int argc, char *argv[]) {
 		goto the_end;
 	}
 
-	if(verbose)
-		fprintf(stderr,"Counted %lu mapped reads\n",mapped_reads);
+	if(verbose && norm_rpm)
+		fprintf(stderr,"Counted %.6f alignments \n",mapped_reads);
 
 	if(norm_rpm)
-		norm_factor = 1.0e6 / (double)mapped_reads;  // reads per million mapped reads
+		norm_factor = 1.0e6 / mapped_reads;  // reads per million mapped reads
 
-	ret = processDepths(data, n_files, reg, min_phred, of1, of2, norm_factor, smart_overlap, max_peak);
+	ret = processDepths(data, n_files, reg, min_phred, of1, of2, norm_factor, smart_overlap, max_peak, fraction_counts);
 
 the_end:
 
@@ -365,8 +398,8 @@ void usage(char *prog) {
 	fprintf(stderr,	"           This appropriate for dUTP-based libraries (for example Illumina TruSeq).\n");
 	fprintf(stderr,	"           Use 1 for NuGEN stranded libraries.\n");
 	fprintf(stderr,	"\n");
-	fprintf(stderr,	"-m INT     Minimum required MAPQ value to count a read.\n");
-	fprintf(stderr, "           The default is 0, meaning that all aligned reads are counted.\n");
+	fprintf(stderr,	"-m INT     Minimum required MAPQ value to count an alignment.\n");
+	fprintf(stderr, "           The default is 0, meaning that all alignments are counted.\n");
 	fprintf(stderr,	"\n");
 	fprintf(stderr,	"-p INT     Minimum Phred score to include a base in an alignment. Default: 1\n");
 	fprintf(stderr,	"\n");
@@ -376,7 +409,9 @@ void usage(char *prog) {
 	fprintf(stderr, "           This option requires a bam index file (.bai).\n");
 	fprintf(stderr, "           See: samtools index \n");
 	fprintf(stderr,	"\n");
-	fprintf(stderr, "-n         normalization by million mapped reads (RPM) \n");
+	fprintf(stderr, "-n         normalization by million mapped reads (RPM)\n");
+	fprintf(stderr,	"\n");
+	fprintf(stderr, "-f         use fraction counts (i.e. 1/N) for multi-mapping reads based on NH:i:N tags\n");
 	fprintf(stderr,	"\n");
 	fprintf(stderr, "-x         disable smart-overlap of paired end reads\n");
 	fprintf(stderr,	"\n");

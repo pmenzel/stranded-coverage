@@ -47,6 +47,14 @@ Read pair         GCATCGCA-----------ACACTGA>                  <ACTGACTGACTGCTGC
 wig file          11111111           1111111                    111111111111111111111111111
 ```
 
+### Multimapping reads
+By default, each alignment belonging to a multimapping read is counted the same as alignments from uniquely mapped reads, i.e. as `1`.
+
+The option `-f` enables fractional counts. In this mode, the tag `NH:i:N` needs
+to be set to the number of alignments for a multimapping read, and each
+alignment will be counted as `1/N`.
+
+
 ### Overlapping ends
 `strand_cov` uses the smart-overlap function from `htslib` to only count coverage once for overlapping ends of paired-end mates.
 ```
@@ -63,8 +71,8 @@ Read pair         GCATCGCATCAGCACATGCACACTGA>
 wig file          1111111111111111111122222211111111111111111
 ```
 
-### RPM Normalization
-The option `-n` enables normalization of the coverage using the reads per million mapped reads (RPM).
+### RPM Normalisation
+The option `-n` enables normalisation of the coverage using the reads per million mapped reads (RPM).
 
 ### Conversion to bigWig format
 The output files in wiggle format can be converted to bigWig format using the [wigToBigWig](http://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/wigToBigWig) program from UCSC, which
