@@ -1,5 +1,4 @@
-stranded-coverage
-=================
+# stranded-coverage
 
 This program reads sorted and indexed BAM files with single-end or paired-end RNA-Seq reads
 that originate from a strand-specific library and calculates the coverage on each strand.
@@ -83,7 +82,7 @@ For example:
 wigToBigWig coverage.plus.wig chrom.sizes coverage.plus.bw
 ```
 
-###License
+### License
 
 See the file LICENSE.
 
