@@ -1,5 +1,12 @@
-/* strand_cov.c - Peter Menzel, 2016 */
-// test -n between old and new
+/* stranded-coverage
+
+Convert BAM to two wig files with strand-specific coverage
+
+Copyright (c) 2016-2018 Peter Menzel, pmenzel@gmail.com
+
+*/
+
+
 #include "htslib/hfile.h"
 #include "htslib/sam.h"
 #include "htslib/bgzf.h"

@@ -15,7 +15,7 @@ htslib:
 	$(MAKE) -j -C ../htslib
 
 strand_cov: htslib strand_cov.o
-	$(CC) $(OPTS) $(INCLUDES) -o strand_cov strand_cov.o ../htslib/libhts.a -lz -lpthread
+	$(CC) $(OPTS) $(INCLUDES) -o strand_cov strand_cov.o ../htslib/libhts.a -lz -lpthread -lm -llzma -lbz2
 
 clean:
 	rm -f *.o strand_cov
