@@ -1,21 +1,23 @@
-INCLUDES = -I../htslib
 CC = gcc
 OPTS = -Wall -Wextra -O2 -g -std=c99
 
-.PHONY:	all htslib clean
+ifdef HTSLIB
+L=$(HTSLIB)/libhts.a -L$(HTSLIB)
+I=-I$(HTSLIB)
+endif
+
+
+.PHONY:	all clean
 
 .SUFFIXES: .c .o
 
 .c.o: Makefile
-	$(CC) -c $(OPTS) $(INCLUDES) $< -o $@
+	$(CC) -c $(OPTS) $< -o $@ $I
 
 all: strand_cov
 
-htslib:
-	$(MAKE) -j -C ../htslib
-
-strand_cov: htslib strand_cov.o
-	$(CC) $(OPTS) $(INCLUDES) -o strand_cov strand_cov.o ../htslib/libhts.a -lz -lpthread -lm -llzma -lbz2
+strand_cov: strand_cov.o
+	$(CC) $(OPTS) $(INCLUDES) -o strand_cov strand_cov.o $L -lhts -lz -lpthread -lm -llzma -lbz2
 
 clean:
 	rm -f *.o strand_cov

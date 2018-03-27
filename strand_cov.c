@@ -7,9 +7,9 @@ Copyright (c) 2016-2018 Peter Menzel, pmenzel@gmail.com
 */
 
 
-#include "htslib/hfile.h"
-#include "htslib/sam.h"
-#include "htslib/bgzf.h"
+#include <htslib/hfile.h>
+#include <htslib/sam.h>
+#include <htslib/bgzf.h>
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>

@@ -3,7 +3,7 @@
 This program reads sorted and indexed BAM files with single-end or paired-end RNA-Seq reads
 that originate from a strand-specific library and calculates the coverage on each strand.
 
-The output are two files in wiggle format (.wig): one for the plus strand coverage and one for the minus strand coverage.
+The output is two files in wiggle format (.wig): one for the plus strand coverage and one for the minus strand coverage.
 
 The implementation is based on the file `bam2depth.c` from
 the [samtools package](https://github.com/samtools/samtools)
@@ -11,20 +11,30 @@ and the strand splitting code from [here](https://github.com/dpryan79/Answers/tr
 
 ### Installation
 
-The program depends on the [htslib](https://github.com/samtools/htslib), which should
-be downloaded to `../htslib`.
+The program depends on the [htslib](https://github.com/samtools/htslib), which
+can either be installed system-wide or downloaded and compiled manually.
 
-Example:
+For the latter case, follow these steps:
 ```
 git clone https://github.com/samtools/htslib.git
+cd htslib
+make
+cd ..
+git clone https://github.com/pmenzel/stranded-coverage.git
+cd stranded-coverage
+make HTSLIB=../htslib
+```
+When htslib is already installed on the system, just do:
+```
 git clone https://github.com/pmenzel/stranded-coverage.git
 cd stranded-coverage
 make
 ```
-This will produce the executable file `strand_cov`.
+
+The executable file is called `strand_cov`.
 
 ### Usage
-Example using the BAM file `Aligned.out.bam`, which needs to be sorted by coordinates:
+Example using the BAM file `Aligned.out.bam`, which has to be sorted by coordinates before running `strand_cov`:
 ```
 strand_cov -o coverage Aligned.out.bam
 ```
